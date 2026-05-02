@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="더맨 다이어리">
+<meta name="theme-color" content="#1a1a2e">
 <title>더맨 다이어리</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
@@ -265,7 +270,7 @@ html,body{height:100%;font-family:var(--font);background:var(--bg);color:var(--t
 .mc-d.today.has-dot::after{background:#fff;}
 
 /* ── 업무보고 ── */
-.report-layout{display:grid;grid-template-columns:1fr 380px;align-items:start;}
+.report-layout{display:grid;grid-template-columns:3fr 2fr;align-items:start;}
 .report-editor{padding:24px 32px;border-right:1px solid var(--border);}
 .report-preview{padding:20px 18px;background:#fafaf9;position:sticky;top:0;max-height:100dvh;overflow-y:auto;}
 .site-block{border:1px solid var(--border);border-radius:var(--r2);padding:12px;margin-bottom:10px;background:#fff;}
@@ -362,7 +367,7 @@ textarea{resize:vertical;min-height:34px;}
 .progress-fill{height:100%;border-radius:2px;background:var(--accent);transition:width .3s;}
 
 /* ── 모바일 ── */
-@media(max-width:700px){
+@media(max-width:900px){
   .sidebar{position:fixed;top:0;left:0;height:100%;z-index:100;
     transform:translateX(-100%);transition:transform .25s ease;border-right:none;box-shadow:var(--shadow3);}
   .sidebar.mobile-open{transform:translateX(0);box-shadow:4px 0 20px rgba(0,0,0,.3);}
@@ -384,7 +389,7 @@ textarea{resize:vertical;min-height:34px;}
 
 /* ══ 수집함 대시보드 드래그&드롭 ══ */
 .inbox-dashboard{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px;}
-@media(max-width:700px){.inbox-dashboard{grid-template-columns:1fr;}}
+@media(max-width:900px){.inbox-dashboard{grid-template-columns:1fr;}}
 
 .drop-zone{border:1.5px solid var(--border);border-radius:var(--r2);padding:14px;
   min-height:140px;transition:all .18s;background:#fff;position:relative;}
@@ -461,9 +466,53 @@ textarea{resize:vertical;min-height:34px;}
   animation:fall linear forwards;}
 @keyframes fall{0%{transform:translateY(-20px) rotate(0deg);opacity:1;}
   100%{transform:translateY(100vh) rotate(720deg);opacity:0;}}
+/* ── 잠금화면 ── */
+#lockScreen{position:fixed;inset:0;background:#1a1a2e;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;}
+#lockScreen.hidden{display:none;}
+.lock-logo{font-size:48px;margin-bottom:8px;}
+.lock-title{font-size:22px;font-weight:800;color:#fff;margin-bottom:4px;letter-spacing:-.5px;}
+.lock-sub{font-size:13px;color:rgba(255,255,255,.4);margin-bottom:32px;}
+.lock-dots{display:flex;gap:16px;margin-bottom:28px;}
+.lock-dot{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.3);background:transparent;transition:all .15s;}
+.lock-dot.filled{background:#3b6ef6;border-color:#3b6ef6;}
+.lock-pad{display:grid;grid-template-columns:repeat(3,72px);gap:12px;}
+.lock-btn{width:72px;height:72px;border-radius:50%;border:none;background:rgba(255,255,255,.08);color:#fff;font-size:22px;font-weight:600;cursor:pointer;font-family:var(--font);transition:background .12s;-webkit-appearance:none;}
+.lock-btn:active{background:rgba(59,110,246,.5);}
+.lock-btn.del{font-size:18px;background:transparent;}
+.lock-btn.empty{background:transparent;cursor:default;}
+.lock-err{color:#fc8181;font-size:13px;margin-top:16px;height:18px;}
 </style>
 </head>
 <body>
+
+<!-- 잠금화면 -->
+<div id="lockScreen">
+  <div class="lock-logo">🔐</div>
+  <div class="lock-title">더맨 다이어리</div>
+  <div class="lock-sub">PIN을 입력하세요</div>
+  <div class="lock-dots">
+    <div class="lock-dot" id="ld0"></div>
+    <div class="lock-dot" id="ld1"></div>
+    <div class="lock-dot" id="ld2"></div>
+    <div class="lock-dot" id="ld3"></div>
+  </div>
+  <div class="lock-pad">
+    <button class="lock-btn" onclick="lockInput('1')">1</button>
+    <button class="lock-btn" onclick="lockInput('2')">2</button>
+    <button class="lock-btn" onclick="lockInput('3')">3</button>
+    <button class="lock-btn" onclick="lockInput('4')">4</button>
+    <button class="lock-btn" onclick="lockInput('5')">5</button>
+    <button class="lock-btn" onclick="lockInput('6')">6</button>
+    <button class="lock-btn" onclick="lockInput('7')">7</button>
+    <button class="lock-btn" onclick="lockInput('8')">8</button>
+    <button class="lock-btn" onclick="lockInput('9')">9</button>
+    <button class="lock-btn empty"></button>
+    <button class="lock-btn" onclick="lockInput('0')">0</button>
+    <button class="lock-btn del" onclick="lockDel()">⌫</button>
+  </div>
+  <div class="lock-err" id="lockErr"></div>
+</div>
+
 <div class="app">
 
 <!-- 사이드바 -->
@@ -707,6 +756,9 @@ textarea{resize:vertical;min-height:34px;}
     <div class="modal-title">⚙️ 설정</div>
     <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);font-weight:600;margin-bottom:4px;">이름/직함</label><input id="setName" value="이태문 차장"></div>
     <div style="margin-bottom:10px;"><label style="display:block;font-size:11px;color:var(--text3);font-weight:600;margin-bottom:4px;">AI API 키 (업무보고 초안)</label><input type="password" id="setApiKey" placeholder="sk-ant-..."></div>
+    <div style="margin-bottom:14px;"><label style="display:block;font-size:11px;color:var(--text3);font-weight:600;margin-bottom:6px;">🔐 잠금 PIN</label>
+      <button class="btn" style="width:100%;" onclick="changePin()">PIN 변경 (현재: ****)</button>
+    </div>
     <div class="modal-btns">
       <button class="btn" onclick="closeM('settingModal')">취소</button>
       <button class="btn primary" onclick="saveSettings()">저장</button>
@@ -753,6 +805,38 @@ textarea{resize:vertical;min-height:34px;}
 </div>
 <script>
 'use strict';
+// ── 잠금화면 ──
+const DEFAULT_PIN='1234';
+let lockBuf='';
+function lockInput(n){
+  if(lockBuf.length>=4)return;
+  lockBuf+=n;
+  for(let i=0;i<4;i++)document.getElementById('ld'+i).classList.toggle('filled',i<lockBuf.length);
+  if(lockBuf.length===4){
+    const pin=localStorage.getItem('dm_pin')||DEFAULT_PIN;
+    if(lockBuf===pin){
+      document.getElementById('lockScreen').classList.add('hidden');
+      document.getElementById('lockErr').textContent='';
+    } else {
+      document.getElementById('lockErr').textContent='PIN이 틀렸습니다';
+      setTimeout(()=>{lockBuf='';for(let i=0;i<4;i++)document.getElementById('ld'+i).classList.remove('filled');document.getElementById('lockErr').textContent='';},800);
+    }
+    lockBuf='';
+  }
+}
+function lockDel(){
+  if(!lockBuf.length)return;
+  lockBuf=lockBuf.slice(0,-1);
+  for(let i=0;i<4;i++)document.getElementById('ld'+i).classList.toggle('filled',i<lockBuf.length);
+}
+// PIN 변경 함수 (설정에서 호출)
+function changePin(){
+  const np=prompt('새 PIN 4자리를 입력하세요:');
+  if(!np||!/^\d{4}$/.test(np)){alert('4자리 숫자만 가능합니다');return;}
+  const cp=prompt('한번 더 입력하세요:');
+  if(np!==cp){alert('PIN이 일치하지 않습니다');return;}
+  localStorage.setItem('dm_pin',np);alert('PIN이 변경됐습니다!');}
+
 // ── 유틸 ──
 const DAYS=['일','월','화','수','목','금','토'];
 const pad=n=>String(n).padStart(2,'0');
