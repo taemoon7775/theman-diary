@@ -485,6 +485,9 @@ a{color:var(--accent);text-decoration:none;}
         <div class="nav-item" onclick="nav('reports')" id="nav-reports">
           <span class="nav-icon">📚</span><span class="nav-txt">보고서 목록</span>
         </div>
+        <div class="nav-item" onclick="nav('archive')" id="nav-archive">
+          <span class="nav-icon">🗂️</span><span class="nav-txt">완료 기록</span>
+        </div>
         <div class="nav-item" onclick="nav('diary')" id="nav-diary">
           <span class="nav-icon">🗓️</span><span class="nav-txt">캘린더 & 기록</span>
         </div>
@@ -734,6 +737,24 @@ a{color:var(--accent);text-decoration:none;}
             <div class="page-sub">생성된 업무보고 이력</div>
           </div>
           <div id="reportsList"></div>
+        </div>
+      </div>
+
+      <!-- ARCHIVE -->
+      <div class="view" id="v-archive">
+        <div class="page-wrap">
+          <div class="page-header" style="display:flex;align-items:flex-end;justify-content:space-between;">
+            <div>
+              <div class="page-title">완료 기록</div>
+              <div class="page-sub" id="archiveSub">완료된 모든 항목의 히스토리</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="month" class="inp" id="archiveMonth" style="width:140px;" onchange="renderArchive()">
+              <button class="btn danger sm" onclick="clearArchive()">기록 정리</button>
+            </div>
+          </div>
+          <div class="inbox-filters" id="archiveFilters"></div>
+          <div id="archiveContent"></div>
         </div>
       </div>
 
@@ -1140,11 +1161,11 @@ window.addEventListener('resize',()=>{if(window.innerWidth>600)closeSidebar();})
 const viewTitles={
   dashboard:'대시보드',inbox:'수집함',tasks:'할 일',sites:'현장현황',
   projects:'프로젝트',directives:'지시사항',meetings:'미팅 기록',
-  report:'업무보고',reports:'보고서 목록',diary:'캘린더 & 개인기록'
+  report:'업무보고',reports:'보고서 목록',archive:'완료 기록',diary:'캘린더 & 개인기록'
 };
 const viewActions={
   inbox:'',tasks:'',sites:'',projects:'',directives:'',meetings:'',
-  reports:'',
+  reports:'',archive:'',
   report:`<button class="tb-btn ghost" onclick="saveRepDraft()">임시저장</button>
           <button class="tb-btn primary" onclick="genReport()">생성 →</button>`,
   diary:`<button class="tb-btn primary" onclick="saveDiary()">기록 저장</button>`
@@ -1171,6 +1192,7 @@ function renderView(v){
   else if(v==='meetings')renderMeetings();
   else if(v==='report')renderReport();
   else if(v==='reports')renderReports();
+  else if(v==='archive')renderArchive();
   else if(v==='diary')renderDiary();
   updateBadges();
 }
@@ -1548,8 +1570,10 @@ function deleteItemById(id){
 function toggleItem(id){
   const item=state.items.find(i=>i.id===id);
   if(!item)return;
-  item.status=item.status==='done'?'active':'done';
-  if(item.status==='done')item.cat='done';
+  const wasDone=item.status==='done';
+  item.status=wasDone?'active':'done';
+  if(!wasDone){item.cat='done';item.doneAt=new Date().toISOString();}
+  else{item.doneAt=null;}
   item.updatedAt=new Date().toISOString();
   saveState();fbPush();
   setTimeout(()=>renderView(curView),200);
@@ -1841,7 +1865,7 @@ function toggleProjTask(pid,tid){
   const proj=state.projects.find(p=>p.id===pid);
   if(!proj)return;
   const task=(proj.tasks||[]).find(t=>t.id===tid);
-  if(task){task.done=!task.done;}
+  if(task){task.done=!task.done;task.doneAt=task.done?new Date().toISOString():null;}
   saveState();fbPush();
   setTimeout(()=>renderProjects(),100);
 }
@@ -1909,8 +1933,12 @@ function saveDir(){
   renderDirectives();updateBadges();toast('지시사항이 추가됐습니다');
 }
 function toggleDir(id){
-  const d=state.directives.find(d=>d.id===id);
-  if(d){d.status=d.status==='완료'?'진행중':'완료';}
+  const d=state.directives.find(x=>x.id===id);
+  if(d){
+    const isDone=d.status==='완료';
+    d.status=isDone?'진행중':'완료';
+    d.doneAt=isDone?null:new Date().toISOString();
+  }
   saveState();fbPush();renderDirectives();updateBadges();
 }
 function deleteDir(id){
@@ -2252,6 +2280,167 @@ async function fetchGcalEvents(){
     renderDiaryMonth();
     toast(`📅 ${(data.items||[]).length}개 일정 불러왔습니다`);
   }catch(e){toast('구글 캘린더 연결 오류');}
+}
+
+// ─────────────────────────────────
+// ARCHIVE (완료 기록)
+// ─────────────────────────────────
+let archiveFilter='all';
+
+function renderArchive(){
+  // 월 기본값 = 이번달
+  const monthEl=document.getElementById('archiveMonth');
+  if(monthEl&&!monthEl.value){
+    const n=new Date();
+    monthEl.value=`${n.getFullYear()}-${pad(n.getMonth()+1)}`;
+  }
+  const selMonth=monthEl?.value||'';
+
+  // 필터 버튼
+  const filters=[
+    {id:'all',label:'전체'},
+    {id:'task',label:'✅ 할 일'},
+    {id:'project',label:'📁 프로젝트'},
+    {id:'directive',label:'📋 지시사항'},
+  ];
+  document.getElementById('archiveFilters').innerHTML=filters.map(f=>
+    `<button class="filter-chip ${archiveFilter===f.id?'active':''}" onclick="archiveFilter='${f.id}';renderArchive()">${f.label}</button>`
+  ).join('');
+
+  // 데이터 수집
+  let entries=[];
+
+  // 할 일 완료 항목
+  if(archiveFilter==='all'||archiveFilter==='task'){
+    const doneItems=state.items.filter(i=>i.status==='done');
+    doneItems.forEach(i=>{
+      const dt=i.doneAt||i.updatedAt||i.createdAt||'';
+      if(selMonth&&!dt.startsWith(selMonth))return;
+      entries.push({
+        type:'task',
+        date:dt,
+        title:i.text,
+        sub:({today:'오늘 할 일',week:'이번주 할 일',month:'이번달 할 일',personal:'개인 할 일',inbox:'수집함',done:''})[i.cat]||i.cat,
+        site:i.site||'',
+        id:i.id,
+        obj:i
+      });
+    });
+  }
+
+  // 프로젝트 완료 태스크
+  if(archiveFilter==='all'||archiveFilter==='project'){
+    state.projects.forEach(p=>{
+      (p.tasks||[]).filter(t=>t.done).forEach(t=>{
+        const dt=t.doneAt||'';
+        if(selMonth&&!dt.startsWith(selMonth))return;
+        entries.push({
+          type:'project',
+          date:dt,
+          title:t.text,
+          sub:p.name,
+          id:t.id,
+          obj:t
+        });
+      });
+    });
+  }
+
+  // 지시사항 완료
+  if(archiveFilter==='all'||archiveFilter==='directive'){
+    state.directives.filter(d=>d.status==='완료').forEach(d=>{
+      const dt=d.doneAt||d.updatedAt||'';
+      if(selMonth&&!dt.startsWith(selMonth))return;
+      entries.push({
+        type:'directive',
+        date:dt,
+        title:d.content?.slice(0,60)+(d.content?.length>60?'...':''),
+        sub:d.from||'',
+        id:d.id,
+        obj:d
+      });
+    });
+  }
+
+  // 날짜 정렬 (최신순)
+  entries.sort((a,b)=>b.date.localeCompare(a.date));
+
+  const sub=document.getElementById('archiveSub');
+  if(sub)sub.textContent=`${selMonth||'전체'} · 총 ${entries.length}건 완료`;
+
+  const el=document.getElementById('archiveContent');
+  if(!entries.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">🗂️</div><div class="empty-txt">완료된 항목이 없습니다<br><span style="font-size:11px;">다른 월을 선택하거나 필터를 변경해보세요</span></div></div>`;
+    return;
+  }
+
+  // 날짜별 그룹핑
+  const groups={};
+  entries.forEach(e=>{
+    const day=e.date.slice(0,10)||'날짜 없음';
+    if(!groups[day])groups[day]=[];
+    groups[day].push(e);
+  });
+
+  const typeIcon={task:'✅',project:'📁',directive:'📋'};
+  const typeColor={task:'var(--green)',project:'var(--accent)',directive:'var(--purple)'};
+  const typeBg={task:'var(--green-dim)',project:'var(--accent-dim)',directive:'var(--purple-dim)'};
+
+  el.innerHTML=Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0])).map(([day,items])=>{
+    const d=new Date(day);
+    const dn=isNaN(d)?day:`${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 ${'일월화수목금토'[d.getDay()]}요일`;
+    return `
+      <div style="margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <div style="font-size:12px;font-weight:700;color:var(--text2);">${dn}</div>
+          <div style="flex:1;height:1px;background:var(--border);"></div>
+          <div style="font-size:11px;color:var(--text3);">${items.length}건</div>
+        </div>
+        ${items.map(e=>`
+          <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:4px;border-left:3px solid ${typeColor[e.type]};">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;color:var(--text);margin-bottom:3px;word-break:break-word;">${esc(e.title)}</div>
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:${typeBg[e.type]};color:${typeColor[e.type]};">${typeIcon[e.type]} ${e.type==='task'?'할 일':e.type==='project'?'프로젝트':e.type==='directive'?'지시사항':''}</span>
+                ${e.sub?`<span class="tag gray">${esc(e.sub)}</span>`:''}
+                ${e.site?`<span class="tag teal">${esc(e.site)}</span>`:''}
+                <span style="font-size:11px;color:var(--text3);">${e.date.slice(11,16)||''}</span>
+              </div>
+            </div>
+            ${e.type==='task'?`<button class="btn sm ghost" style="flex-shrink:0;" onclick="restoreItem('${e.id}')">↩ 복원</button>`:''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }).join('');
+}
+
+function restoreItem(id){
+  const item=state.items.find(i=>i.id===id);
+  if(!item)return;
+  item.status='active';
+  item.cat='today';
+  item.doneAt=null;
+  saveState();fbPush();
+  renderArchive();
+  toast('오늘 할 일로 복원됐습니다');
+}
+
+function clearArchive(){
+  const monthEl=document.getElementById('archiveMonth');
+  const selMonth=monthEl?.value;
+  if(!selMonth){toast('월을 선택해주세요');return;}
+  const d=new Date(selMonth);
+  const label=`${d.getFullYear()}년 ${d.getMonth()+1}월`;
+  if(!confirm(`${label} 완료된 할 일 기록을 삭제하시겠습니까?\n(프로젝트·지시사항 기록은 유지됩니다)`))return;
+  state.items=state.items.filter(i=>{
+    if(i.status!=='done')return true;
+    const dt=i.doneAt||i.updatedAt||'';
+    return !dt.startsWith(selMonth);
+  });
+  saveState();fbPush();
+  renderArchive();
+  toast(`${label} 완료 기록이 정리됐습니다`);
 }
 
 // ─────────────────────────────────
