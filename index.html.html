@@ -272,7 +272,8 @@ a{color:var(--accent);text-decoration:none;}
 .proj-prog-label strong{font-size:11px;color:var(--text2);}
 .proj-prog-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
 .proj-prog-fill{height:100%;border-radius:3px;transition:width .4s;}
-.proj-tasks{margin-top:8px;}
+.proj-tasks{margin-top:8px;min-height:32px;}
+.proj-task-drop{border:2px dashed var(--accent);border-radius:var(--r);background:var(--accent-dim);padding:8px;text-align:center;font-size:12px;color:var(--accent);display:none;}
 .pt-item{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);}
 .pt-item:last-child{border-bottom:none;}
 .pt-check{font-size:12px;}
@@ -929,6 +930,32 @@ a{color:var(--accent);text-decoration:none;}
   </div>
 </div>
 
+<!-- Add Item to Project Modal -->
+<div class="modal-bg" id="addToProjectModal">
+  <div class="modal">
+    <div class="modal-title">📁 프로젝트에 추가</div>
+    <div id="atpItemPreview" style="background:var(--bg2);border-radius:var(--r);padding:10px 12px;margin-bottom:16px;font-size:13px;color:var(--text);border-left:3px solid var(--accent);"></div>
+    <div class="modal-field">
+      <div class="modal-label">프로젝트 선택</div>
+      <select class="inp" id="atpProjSelect">
+        <option value="">프로젝트를 선택하세요</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <div class="modal-label">추가 후 원본 처리</div>
+      <select class="inp" id="atpAfter">
+        <option value="keep">수집함에 그대로 유지</option>
+        <option value="done">완료 처리</option>
+        <option value="delete">삭제</option>
+      </select>
+    </div>
+    <div class="modal-btns">
+      <button class="btn ghost" onclick="closeM('addToProjectModal')">취소</button>
+      <button class="btn primary" onclick="confirmAddToProject()">추가</button>
+    </div>
+  </div>
+</div>
+
 <!-- Add Project -->
 <div class="modal-bg" id="addProjModal">
   <div class="modal wide">
@@ -1332,6 +1359,7 @@ function renderInbox(){
       </div>
       <div class="ii-right">
         <div class="ii-date">${fmtDate(i.createdAt?.split('T')[0])}</div>
+        <button class="xbtn" title="프로젝트에 추가" onclick="event.stopPropagation();addItemToProject('${i.id}')" style="color:var(--accent);font-size:13px;">📁</button>
         <button class="xbtn" onclick="event.stopPropagation();deleteItemById('${i.id}')">×</button>
       </div>
     </div>
@@ -1580,7 +1608,10 @@ function renderKanban(){
 }
 function knCard(i){
   return `<div class="kn-card ${i.status==='done'?'done-card':''}" data-id="${i.id}" onclick="openItem('${i.id}')">
-    <div class="kn-card-text">${esc(i.text)}</div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;">
+      <div class="kn-card-text" style="flex:1;">${esc(i.text)}</div>
+      <button class="xbtn" title="프로젝트에 추가" onclick="event.stopPropagation();addItemToProject('${i.id}')" style="color:var(--accent);font-size:12px;opacity:0.6;flex-shrink:0;">📁</button>
+    </div>
     <div class="kn-card-meta">
       <span class="tag ${priColor(i.priority)} sm">${priLabel(i.priority)}</span>
       ${i.site?`<span class="tag teal">${esc(i.site)}</span>`:''}
@@ -1710,9 +1741,9 @@ function renderProjects(){
           <div class="proj-prog-bar"><div class="proj-prog-fill" style="width:${prog}%;background:${prog>70?'var(--green)':prog>30?'var(--accent)':'var(--yellow)'};"></div></div>
         </div>
         ${(p.tasks||[]).length?`
-        <div class="proj-tasks">
+        <div class="proj-tasks" id="ptasks-${p.id}" data-projid="${p.id}">
           ${(p.tasks||[]).slice(0,4).map(t=>`
-            <div class="pt-item">
+            <div class="pt-item" data-tid="${t.id}">
               <input type="checkbox" class="task-cb" ${t.done?'checked':''} onclick="toggleProjTask('${p.id}','${t.id}')">
               <span class="pt-txt ${t.done?'done':''}">${esc(t.text)}</span>
             </div>
@@ -1726,6 +1757,7 @@ function renderProjects(){
       </div>
     `;
   }).join('');
+  setTimeout(initProjSortable, 50);
 }
 function saveProj(){
   const rawTasks=document.getElementById('projTasks').value.trim();
@@ -1747,6 +1779,59 @@ function saveProj(){
   ['projName','projClient','projDesc','projTasks'].forEach(id=>document.getElementById(id).value='');
   renderProjects();toast('프로젝트가 추가됐습니다');
 }
+// ── 아이템 → 프로젝트 추가 ──
+let atpItemId=null;
+function addItemToProject(itemId){
+  const item=state.items.find(i=>i.id===itemId);
+  if(!item){toast('항목을 찾을 수 없습니다');return;}
+  if(!state.projects.length){toast('프로젝트가 없습니다. 먼저 프로젝트를 추가해주세요.');return;}
+  atpItemId=itemId;
+  document.getElementById('atpItemPreview').textContent=item.text;
+  const sel=document.getElementById('atpProjSelect');
+  sel.innerHTML='<option value="">프로젝트를 선택하세요</option>'+
+    state.projects.filter(p=>p.status!=='완료').map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  openM('addToProjectModal');
+}
+function confirmAddToProject(){
+  const projId=document.getElementById('atpProjSelect').value;
+  const after=document.getElementById('atpAfter').value;
+  if(!projId){toast('프로젝트를 선택해주세요');return;}
+  const proj=state.projects.find(p=>p.id===projId);
+  const item=state.items.find(i=>i.id===atpItemId);
+  if(!proj||!item){toast('오류가 발생했습니다');return;}
+  if(!proj.tasks)proj.tasks=[];
+  proj.tasks.push({id:uid(),text:item.text,done:false,fromItemId:item.id});
+  if(after==='done'){item.status='done';item.cat='done';}
+  else if(after==='delete'){state.items=state.items.filter(i=>i.id!==atpItemId);}
+  saveState();fbPush();
+  closeM('addToProjectModal');
+  renderView(curView);
+  toast(`'${proj.name}'에 추가됐습니다 ✅`);
+}
+
+function initProjSortable(){
+  if(typeof Sortable==='undefined')return;
+  state.projects.forEach(p=>{
+    const el=document.getElementById('ptasks-'+p.id);
+    if(!el||el.dataset.sortable)return;
+    el.dataset.sortable='1';
+    Sortable.create(el,{
+      animation:150,
+      handle:'.pt-item',
+      ghostClass:'kn-ghost',
+      onEnd(evt){
+        const proj=state.projects.find(x=>x.id===p.id);
+        if(!proj||!proj.tasks)return;
+        const fromIdx=evt.oldIndex;const toIdx=evt.newIndex;
+        if(fromIdx===toIdx)return;
+        const moved=proj.tasks.splice(fromIdx,1)[0];
+        proj.tasks.splice(toIdx,0,moved);
+        saveState();fbPush();
+      }
+    });
+  });
+}
+
 function deleteProj(id){
   if(!confirm('이 프로젝트를 삭제하시겠습니까?'))return;
   state.projects=state.projects.filter(p=>p.id!==id);
